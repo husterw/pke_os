@@ -8,6 +8,10 @@
 #include "riscv.h"
 #include "spike_interface/spike_utils.h"
 
+elf_symbol symtab_content[64];
+char symname[64][32];
+int symnum = 0;
+
 typedef struct elf_info_t {
   spike_file_t *f;
   process *p;
@@ -101,6 +105,44 @@ static size_t parse_args(arg_buf *arg_bug_msg) {
   return pk_argc - arg;
 }
 
+void elf_get_symtab(elf_ctx *ctx) {
+  // get the section header string table
+  elf_sec_header shstrtab_hdr;
+  uint64 offset = ctx->ehdr.shoff + ctx->ehdr.shstrndx * sizeof(elf_sec_header);
+  elf_fpread(ctx, &shstrtab_hdr, sizeof(elf_sec_header), offset);
+
+  // get the section header string table content
+  char shstrtab[shstrtab_hdr.sh_size];
+  elf_fpread(ctx, shstrtab, shstrtab_hdr.sh_size, shstrtab_hdr.sh_offset);
+
+  // get the symbol table and string table section headers
+  elf_sec_header symtab_hdr;
+  elf_sec_header strtab_hdr;
+  for (int i = 0; i < ctx->ehdr.shnum; i++) {
+    offset = ctx->ehdr.shoff + i * ctx->ehdr.shentsize;
+    elf_fpread(ctx, &symtab_hdr, sizeof(elf_sec_header), offset);
+    if (strcmp(&shstrtab[symtab_hdr.sh_name], ".symtab") == 0) break;
+  }
+  for (int i = 0; i < ctx->ehdr.shnum; i++) {
+    offset = ctx->ehdr.shoff + i * ctx->ehdr.shentsize;
+    elf_fpread(ctx, &strtab_hdr, sizeof(elf_sec_header), offset);
+    if (strcmp(&shstrtab[strtab_hdr.sh_name], ".strtab") == 0) break;
+  }
+
+  // get the string table content
+  char strtab_content[strtab_hdr.sh_size];
+  elf_fpread(ctx, strtab_content, strtab_hdr.sh_size, strtab_hdr.sh_offset);
+  
+  // get the symbol table content
+  symnum = symtab_hdr.sh_size / sizeof(elf_symbol);
+  for(int i = 0; i < symnum; i++) {
+    elf_fpread(ctx, &symtab_content[i], sizeof(elf_symbol), symtab_hdr.sh_offset + i * sizeof(elf_symbol));
+    char* sname = &strtab_content[symtab_content[i].st_name];
+    strcpy(symname[i], sname);
+  }
+
+}
+
 //
 // load the elf of user application, by using the spike file interface.
 //
@@ -129,6 +171,9 @@ void load_bincode_from_host_elf(process *p) {
 
   // load elf. elf_load() is defined above.
   if (elf_load(&elfloader) != EL_OK) panic("Fail on loading elf.\n");
+
+  // save the elf header information of the application program
+  elf_get_symtab(&elfloader);
 
   // entry (virtual, also physical in lab1_x) address
   p->trapframe->epc = elfloader.ehdr.entry;
