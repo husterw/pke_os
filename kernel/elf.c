@@ -13,6 +13,9 @@ typedef struct elf_info_t {
   process *p;
 } elf_info;
 
+// save the .debug_line section 
+char debug_line[100000000];
+
 //
 // the implementation of allocater. allocates memory space for later segment loading
 //
@@ -249,6 +252,42 @@ static size_t parse_args(arg_buf *arg_bug_msg) {
 }
 
 //
+// save the .debug_line section to the process structure
+//
+void save_debug_line(elf_ctx* ctx) {
+  // get the section header table offset
+  uint64 shoff = ctx->ehdr.shoff;
+  // get the number of section headers
+  uint64 shnum = ctx->ehdr.shnum;
+  // get the size of each section header
+  uint64 shentsize = ctx->ehdr.shentsize;
+  // get the index of the section header string table
+  uint64 shstrndx = ctx->ehdr.shstrndx;
+
+  // get the section header string table
+  elf_sect_header shstrtab;
+  elf_fpread(ctx, &shstrtab, shentsize, shoff + shstrndx * shentsize);
+
+  // get the section header string table content
+  char shstrtab_content[shstrtab.size];
+  elf_fpread(ctx, shstrtab_content, shstrtab.size, shstrtab.offset);
+
+  // iterate through the section headers
+  for (int i = 0; i < shnum; i++) {
+    // get the section header
+    elf_sect_header sh;
+    elf_fpread(ctx, &sh, shentsize, shoff + i * shentsize);
+    if(strcmp(shstrtab_content + sh.name, ".debug_line") == 0) {
+        // get the content of the .debug_line section
+        elf_fpread(ctx, debug_line, sh.size, sh.offset);
+        // analyze the data in the .debug_line section
+        make_addr_line(ctx, debug_line, sh.size);
+        break;
+    }
+  }
+}
+
+//
 // load the elf of user application, by using the spike file interface.
 //
 void load_bincode_from_host_elf(process *p) {
@@ -276,6 +315,8 @@ void load_bincode_from_host_elf(process *p) {
 
   // load elf. elf_load() is defined above.
   if (elf_load(&elfloader) != EL_OK) panic("Fail on loading elf.\n");
+
+  save_debug_line(&elfloader);
 
   // entry (virtual, also physical in lab1_x) address
   p->trapframe->epc = elfloader.ehdr.entry;
