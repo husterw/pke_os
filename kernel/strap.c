@@ -61,6 +61,8 @@ void handle_user_page_fault(uint64 mcause, uint64 sepc, uint64 stval) {
       // hint: first allocate a new physical page, and then, maps the new page to the
       // virtual address that causes the page fault.
       // panic( "You need to implement the operations that actually handle the page fault in lab2_3.\n" );
+      if(stval < current->trapframe->regs.sp - PGSIZE)
+        panic("this address is not available!");
       void* pa = alloc_page();
       if (pa == 0) panic("alloc_page failed\n");
       user_vm_map(current->pagetable, ROUNDDOWN(stval, PGSIZE), PGSIZE, (uint64)pa, prot_to_type(PROT_READ | PROT_WRITE, 1));
