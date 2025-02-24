@@ -2,6 +2,7 @@
 #define _PROC_H_
 
 #include "riscv.h"
+#include "vmm.h"
 
 typedef struct trapframe_t {
   // space to store context (all common registers)
@@ -26,10 +27,17 @@ typedef struct process_t {
   pagetable_t pagetable;
   // trapframe storing the context of a (User mode) process.
   trapframe* trapframe;
+  // the last address of heap
+  uint64 heap_sz;
+  uint64 start_chunk;
+  uint64 last_chunk;
 }process;
 
 // switch to run user app
 void switch_to(process*);
+
+// increase current process's heap size
+int p_grow_heap(uint64);
 
 // current running process
 extern process* current;

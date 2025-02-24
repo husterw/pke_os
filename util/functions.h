@@ -3,6 +3,7 @@
 
 #define ROUNDUP(a, b) ((((a)-1) / (b) + 1) * (b))
 #define ROUNDDOWN(a, b) ((a) / (b) * (b))
+#define PGROUNDUP(a) (((a) + PGSIZE - 1) & ~(PGSIZE - 1))
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define MIN(a, b) ((a) < (b) ? (a) : (b))

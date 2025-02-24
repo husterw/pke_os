@@ -5,11 +5,15 @@
 #include "vmm.h"
 #include "riscv.h"
 #include "pmm.h"
+#include "process.h"
+#include "memlayout.h"
 #include "util/types.h"
 #include "memlayout.h"
 #include "util/string.h"
 #include "spike_interface/spike_utils.h"
 #include "util/functions.h"
+
+int has_inited = 0;
 
 /* --- utility functions for virtual address mapping --- */
 //
@@ -20,8 +24,7 @@ int map_pages(pagetable_t page_dir, uint64 va, uint64 size, uint64 pa, int perm)
   uint64 first, last;
   pte_t *pte;
 
-  for (first = ROUNDDOWN(va, PGSIZE), last = ROUNDDOWN(va + size - 1, PGSIZE);
-      first <= last; first += PGSIZE, pa += PGSIZE) {
+  for (first = ROUNDDOWN(va, PGSIZE), last = ROUNDDOWN(va + size - 1, PGSIZE); first <= last; first += PGSIZE, pa += PGSIZE) {
     if ((pte = page_walk(page_dir, first, 1)) == 0) return -1;
     if (*pte & PTE_V)
       panic("map_pages fails on mapping va (0x%lx) to pa (0x%lx)", first, pa);
@@ -199,4 +202,82 @@ void user_vm_unmap(pagetable_t page_dir, uint64 va, uint64 size, int free) {
     }
   }
 
+}
+
+//
+// Allocate PTEs and physical memory to grow process from oldsz to newsz
+uint64 user_vm_malloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz) {
+  if(oldsz > newsz) return oldsz;
+
+  oldsz = PGROUNDUP(oldsz);
+  char* temp_mem;
+  for(uint64 old = oldsz; old < newsz; old += PGSIZE) {
+    temp_mem = (char*)alloc_page();
+    if(temp_mem == 0)
+      panic("Alloc page failed!\n");
+    memset(temp_mem, 0, PGSIZE);
+    map_pages(pagetable, old, PGSIZE, (uint64)temp_mem, prot_to_type(PROT_READ | PROT_WRITE, 1));
+  }
+  return newsz;
+}
+
+void heap_init() {
+  if(has_inited == 0) {
+    current->heap_sz = USER_FREE_ADDRESS_START;
+    uint64 addr = current->heap_sz;
+    p_grow_heap(sizeof(chunk_t));
+    pte_t *pte = page_walk(current->pagetable, addr, 0);
+    chunk_t *start_chunk = (chunk_t*)PTE2PA(*pte);
+    current->start_chunk = (uint64)start_chunk;
+    start_chunk->next = start_chunk;
+    start_chunk->size = 0;
+    current->last_chunk = (uint64)start_chunk;
+    has_inited = 1;
+  }
+}
+
+uint64 heap_alloc(uint64 n) {
+  chunk_t* head = (chunk_t*)current->start_chunk;
+  chunk_t* last = (chunk_t*)current->last_chunk;
+  
+  // find the first chunk that is large enough and available
+  while(1) {
+    if(head->size >= n && head->available) {
+      head->available = 0;
+      return head->offset + sizeof(chunk_t);
+    }
+    if(head->next == last) {
+      break;
+    }
+    head = head->next;
+  }
+
+  // if no chunk meets the requirement, allocate a new chunk
+  uint64 allocate_addr = current->heap_sz;
+  p_grow_heap((uint64)(sizeof(chunk_t) + n + 8));
+  pte_t *pte = page_walk(current->pagetable, allocate_addr, 0);
+  chunk_t *now = (chunk_t*)(PTE2PA(*pte) + (allocate_addr & 0xffff));
+  uint64 align = (8 - (uint64)now % 8) % 8;
+  now = (chunk_t*)((uint64)now + align);
+
+  now->available = 0;
+  now->offset = allocate_addr;
+  now->size = n;
+  now->next = head->next;
+  head->next = now;
+
+  return allocate_addr + sizeof(chunk_t);
+}
+
+void heap_free(void* va) {
+  va = (void*)((uint64)va - sizeof(chunk_t));
+  pte_t *pte = page_walk(current->pagetable, (uint64)va, 0);
+  chunk_t *chunk = (chunk_t*)(PTE2PA(*pte) + ((uint64)va & 0xffff));
+  uint64 align = (8 - (uint64)chunk % 8) % 8;
+  chunk = (chunk_t*)((uint64)chunk + align);
+  if(chunk->available) {
+    panic("The memory has been freed!\n");
+  }
+  chunk->available = 1;
+  return ;
 }

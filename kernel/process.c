@@ -64,3 +64,10 @@ void switch_to(process* proc) {
   // note, return_to_user takes two parameters @ and after lab2_1.
   return_to_user(proc->trapframe, user_satp);
 }
+
+int p_grow_heap(uint64 n) {
+  uint64 size = current->heap_sz;
+  user_vm_malloc(current->pagetable, size, size + n);
+  current->heap_sz += n;
+  return 0;
+}

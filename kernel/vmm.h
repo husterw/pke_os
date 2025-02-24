@@ -31,4 +31,16 @@ void *user_va_to_pa(pagetable_t page_dir, void *va);
 void user_vm_map(pagetable_t page_dir, uint64 va, uint64 size, uint64 pa, int perm);
 void user_vm_unmap(pagetable_t page_dir, uint64 va, uint64 size, int free);
 
+typedef struct chunk {
+  int available;
+  uint32 size;
+  uint64 offset;
+  struct chunk *next;
+}chunk_t;
+
+uint64 user_vm_malloc(pagetable_t pagetable, uint64 oldsize, uint64 newsize);
+void heap_init();
+uint64 heap_alloc(uint64 n);
+void heap_free(void* va);
+
 #endif
