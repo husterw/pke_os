@@ -32,7 +32,7 @@ static void handle_syscall(trapframe *tf) {
 
 //
 // global variable that store the recorded "ticks". added @lab1_3
-static uint64 g_ticks = 0;
+static uint64 g_ticks[NCPU] = {0};
 //
 // added @lab1_3
 //
@@ -42,7 +42,7 @@ void handle_mtimer_trap() {
   // field in sip register.
   // hint: use write_csr to disable the SIP_SSIP bit in sip.
   // panic( "lab1_3: increase g_ticks by one, and clear SIP field in sip register.\n" );
-  g_ticks++;
+  g_ticks[read_tp()]++;
   write_csr(sip, read_csr(sip) & ~SIP_SSIP);
 
 }
@@ -63,7 +63,7 @@ void handle_user_page_fault(uint64 mcause, uint64 sepc, uint64 stval) {
       // panic( "You need to implement the operations that actually handle the page fault in lab2_3.\n" );
       void* pa = alloc_page();
       if (pa == 0) panic("alloc_page failed\n");
-      user_vm_map(current->pagetable, ROUNDDOWN(stval, PGSIZE), PGSIZE, (uint64)pa, prot_to_type(PROT_READ | PROT_WRITE, 1));
+      user_vm_map(current[read_tp()]->pagetable, ROUNDDOWN(stval, PGSIZE), PGSIZE, (uint64)pa, prot_to_type(PROT_READ | PROT_WRITE, 1));
 
       break;
     default:
@@ -81,9 +81,11 @@ void smode_trap_handler(void) {
   // we will consider other previous case in lab1_3 (interrupt).
   if ((read_csr(sstatus) & SSTATUS_SPP) != 0) panic("usertrap: not from user mode");
 
-  assert(current);
+  uint64 hartid = read_tp();
+
+  assert(current[hartid]);
   // save user process counter.
-  current->trapframe->epc = read_csr(sepc);
+  current[hartid]->trapframe->epc = read_csr(sepc);
 
   // if the cause of trap is syscall from user application.
   // read_csr() and CAUSE_USER_ECALL are macros defined in kernel/riscv.h
@@ -92,7 +94,7 @@ void smode_trap_handler(void) {
   // use switch-case instead of if-else, as there are many cases since lab2_3.
   switch (cause) {
     case CAUSE_USER_ECALL:
-      handle_syscall(current->trapframe);
+      handle_syscall(current[hartid]->trapframe);
       break;
     case CAUSE_MTIMER_S_TRAP:
       handle_mtimer_trap();
@@ -111,5 +113,5 @@ void smode_trap_handler(void) {
   }
 
   // continue (come back to) the execution of current process.
-  switch_to(current);
+  switch_to(current[hartid]);
 }
