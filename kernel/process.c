@@ -245,6 +245,20 @@ int do_fork( process* parent)
         child->mapped_info[child->total_mapped_region].seg_type = CODE_SEGMENT;
         child->total_mapped_region++;
         break;
+      // case DATA_SEGMENT:
+      //   for(int k = 0; k < parent->mapped_info[i].npages; k++) {
+      //     uint64 va = parent->mapped_info[i].va + k * PGSIZE;
+      //     uint64 pa = lookup_pa(parent->pagetable, va);
+      //     char* child_pa = alloc_page();
+      //     memcpy(child_pa, (void*)pa, PGSIZE);
+      //     map_pages((pagetable_t)child->pagetable, va, PGSIZE, (uint64)child_pa, prot_to_type(PROT_READ | PROT_WRITE, 1));
+      //   }
+      //   uint64 total_mapped_region = child->total_mapped_region;
+      //   child->mapped_info[total_mapped_region].va = parent->mapped_info[i].va;
+      //   child->mapped_info[total_mapped_region].npages = parent->mapped_info[i].npages;
+      //   child->mapped_info[total_mapped_region].seg_type = DATA_SEGMENT;
+      //   child->total_mapped_region++;
+      //   break;
     }
   }
 
@@ -254,4 +268,25 @@ int do_fork( process* parent)
   insert_to_ready_queue( child );
 
   return child->pid;
+}
+
+int do_wait(process* parent, int pid) {
+  if (pid == -1) {
+    int f = 0;
+    for (int i = 0; i < NPROC; i++)
+      if (procs[i].parent == current) {
+        f = 1;
+        if (procs[i].status == ZOMBIE) {
+          procs[i].status = FREE; return i;
+        }
+      }
+    if (f) return -2; else return -1;
+  } else if (pid < NPROC) {
+    if (procs[pid].parent != current) return -1;
+    else {
+      if (procs[pid].status == ZOMBIE) {
+        procs[pid].status = FREE; return pid;
+      } else  return -2;
+    }
+  } else return -1;
 }
