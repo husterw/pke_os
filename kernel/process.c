@@ -255,3 +255,47 @@ int do_fork( process* parent)
 
   return child->pid;
 }
+
+semaphore_t semaphores[NPROC];
+int sem_init(int value) {
+  for (int i = 0; i < NPROC; i++) {
+    if (semaphores[i].occupied == 0) {
+      semaphores[i].value = value;
+      semaphores[i].occupied = 1;
+      semaphores[i].head = NULL;
+      semaphores[i].tail = NULL;
+      return i;
+    }
+  }
+  // no available semaphore
+  return -1;
+}
+
+void P_sem(int sem) {
+  if (sem < 0 || sem >= NPROC) return;
+  semaphores[sem].value--;
+  if (semaphores[sem].value < 0) {
+    // block the current process
+    if (semaphores[sem].head == NULL) {
+      semaphores[sem].head = semaphores[sem].tail = current;
+      current->queue_next = NULL;
+    } else {
+      semaphores[sem].tail->queue_next = current;
+      semaphores[sem].tail = current;
+      current->queue_next = NULL;
+    }
+    current->status = BLOCKED;
+    schedule();
+  }
+}
+
+void V_sem(int sem) {
+  if (sem < 0 || sem >= NPROC) return;
+  semaphores[sem].value++;
+  // wake up a blocked process
+  if (semaphores[sem].head != NULL) {
+    process* p = semaphores[sem].head;
+    semaphores[sem].head = p->queue_next;
+    insert_to_ready_queue(p);
+  }
+}

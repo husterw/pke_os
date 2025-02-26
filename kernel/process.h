@@ -91,6 +91,12 @@ typedef struct process_t {
   int tick_count;
 }process;
 
+typedef struct semaphore_t {
+  int value;
+  int occupied;
+  process* head, *tail;
+}semaphore_t;
+
 // switch to run user app
 void switch_to(process*);
 
@@ -102,6 +108,10 @@ process* alloc_process();
 int free_process( process* proc );
 // fork a child from parent
 int do_fork(process* parent);
+
+int sem_init(int value);
+void P_sem(int sem);
+void V_sem(int sem);
 
 // current running process
 extern process* current;
