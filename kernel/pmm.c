@@ -14,6 +14,7 @@ extern uint64 g_mem_size;
 
 static uint64 free_mem_start_addr;  //beginning address of free memory
 static uint64 free_mem_end_addr;    //end address of free memory (not included)
+int page_count[PHYS_TOP / PGSIZE];
 
 typedef struct node {
   struct node *next;
@@ -29,7 +30,10 @@ static list_node g_free_mem_list;
 static void create_freepage_list(uint64 start, uint64 end) {
   g_free_mem_list.next = 0;
   for (uint64 p = ROUNDUP(start, PGSIZE); p + PGSIZE < end; p += PGSIZE)
+  {
+    page_count[p / PGSIZE]++;
     free_page( (void *)p );
+  }
 }
 
 //
@@ -39,10 +43,12 @@ void free_page(void *pa) {
   if (((uint64)pa % PGSIZE) != 0 || (uint64)pa < free_mem_start_addr || (uint64)pa >= free_mem_end_addr)
     panic("free_page 0x%lx \n", pa);
 
-  // insert a physical page to g_free_mem_list
-  list_node *n = (list_node *)pa;
-  n->next = g_free_mem_list.next;
-  g_free_mem_list.next = n;
+  if (--page_count[(uint64)pa / PGSIZE] == 0) {
+    // insert a physical page to g_free_mem_list
+    list_node *n = (list_node *)pa;
+    n->next = g_free_mem_list.next;
+    g_free_mem_list.next = n;
+  }
 }
 
 //
@@ -51,7 +57,10 @@ void free_page(void *pa) {
 //
 void *alloc_page(void) {
   list_node *n = g_free_mem_list.next;
-  if (n) g_free_mem_list.next = n->next;
+  if (n) {
+    page_count[(uint64)n / PGSIZE]++;
+    g_free_mem_list.next = n->next;
+  }
 
   return (void *)n;
 }
@@ -79,8 +88,7 @@ void pmm_init() {
     panic( "Error when recomputing physical memory size (g_mem_size).\n" );
 
   free_mem_end_addr = g_mem_size + DRAM_BASE;
-  sprint("free physical memory address: [0x%lx, 0x%lx] \n", free_mem_start_addr,
-    free_mem_end_addr - 1);
+  sprint("free physical memory address: [0x%lx, 0x%lx] \n", free_mem_start_addr, free_mem_end_addr - 1);
 
   sprint("kernel memory manager is initializing ...\n");
   // create the list of free pages

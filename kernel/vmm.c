@@ -218,3 +218,18 @@ void print_proc_vmspace(process* proc) {
     sprint( ", mapped to pa:%lx\n", lookup_pa(proc->pagetable, proc->mapped_info[i].va) );
   }
 }
+
+void handle_cow(process* proc, uint64 va) {
+  // copy-on-write heap segment
+  uint64 heap_block = ROUNDDOWN(va, PGSIZE);
+  // for (uint64 heap_block = proc->user_heap.heap_bottom; heap_block < proc->user_heap.heap_top; heap_block += PGSIZE) {
+    uint64 pa = lookup_pa(proc->pagetable, heap_block);
+    uint64 new_pa = (uint64)alloc_page();
+    if (new_pa == 0) {
+      panic("alloc_page failed.\n");
+    }
+    memcpy((void*)new_pa, (void*)pa, PGSIZE);
+    user_vm_unmap(proc->pagetable, heap_block, PGSIZE, 1);
+    map_pages(proc->pagetable, heap_block, PGSIZE, new_pa, prot_to_type(PROT_READ | PROT_WRITE, 1));
+  // }
+}

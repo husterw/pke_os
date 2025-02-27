@@ -57,16 +57,27 @@ void handle_user_page_fault(uint64 mcause, uint64 sepc, uint64 stval) {
   sprint("handle_page_fault: %lx\n", stval);
   switch (mcause) {
     case CAUSE_STORE_PAGE_FAULT:
+    {
       // TODO (lab2_3): implement the operations that solve the page fault to
       // dynamically increase application stack.
       // hint: first allocate a new physical page, and then, maps the new page to the
       // virtual address that causes the page fault.
       // panic( "You need to implement the operations that actually handle the page fault in lab2_3.\n" );
-      void* pa = alloc_page();
-      if (pa == 0) panic("alloc_page failed\n");
-      user_vm_map(current->pagetable, ROUNDDOWN(stval, PGSIZE), PGSIZE, (uint64)pa, prot_to_type(PROT_READ | PROT_WRITE, 1));
+      pte_t* pte = page_walk(current->pagetable, stval, 1);
+      if(pte == NULL) {
+        uint64 pa = (uint64)alloc_page();
+        if(pa == 0) {
+          panic("alloc_page failed.\n");
+        }
+        user_vm_map(current->pagetable, ROUNDDOWN(stval, PGSIZE), PGSIZE, pa, prot_to_type(PROT_READ | PROT_WRITE, 1));
+      }
+      else if (pte && (*pte & PTE_COW) != 0) {
+        // child's copy-on-write
+        handle_cow(current, stval);
+      }
 
       break;
+    }
     default:
       sprint("unknown page fault.\n");
       break;
