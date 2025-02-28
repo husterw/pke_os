@@ -24,7 +24,11 @@ int do_closedir(int fd);
 int do_link(char *oldpath, char *newpath);
 int do_unlink(char *path);
 
+int do_rcwd(char *path);
+int do_ccwd(char *path);
+
 void fs_init(void);
+void get_full_path(struct dentry *, char *);
 
 // data structure that manages all openned files in a PCB
 typedef struct proc_file_management_t {

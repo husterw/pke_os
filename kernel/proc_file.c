@@ -6,6 +6,7 @@
 
 #include "hostfs.h"
 #include "pmm.h"
+#include "vmm.h"
 #include "process.h"
 #include "ramdev.h"
 #include "rfs.h"
@@ -75,13 +76,42 @@ struct file *get_opened_file(int fd) {
   return pfile;
 }
 
+void get_full_path(struct dentry* de, char* path) {
+  if(de->parent == NULL) {
+    strcpy(path, de->name);
+    return;
+  }
+  get_full_path(de->parent, path);
+  if(de->parent->name[0] != '/') {
+    strcat(path, "/");
+  }
+  strcat(path, de->name);
+}
+
 //
 // open a file named as "pathname" with the permission of "flags".
 // return: -1 on failure; non-zero file-descriptor on success.
 //
 int do_open(char *pathname, int flags) {
+  char true_path[256];
+  if(pathname[0] == '.' && pathname[1] == '.') {
+    if(current->pfiles->cwd->parent == NULL) {
+      return -1;
+    } else {
+      get_full_path(current->pfiles->cwd->parent, true_path);
+      if(strcmp(true_path, "/") != 0) {
+        strcat(true_path, "/");
+      }
+      strcat(true_path, pathname + 3);
+    }
+  } else if (pathname[0] == '.' && pathname[1] == '/') {
+    get_full_path(current->pfiles->cwd, true_path);
+    strcat(true_path, pathname + 1);
+  } else {
+    strcpy(true_path, pathname);
+  }
   struct file *opened_file = NULL;
-  if ((opened_file = vfs_open(pathname, flags)) == NULL) return -1;
+  if ((opened_file = vfs_open(true_path, flags)) == NULL) return -1;
 
   int fd = 0;
   if (current->pfiles->nfiles >= MAX_FILES) {
@@ -220,4 +250,39 @@ int do_link(char *oldpath, char *newpath) {
 //
 int do_unlink(char *path) {
   return vfs_unlink(path);
+}
+
+int do_rcwd(char *path) {
+  char* pathpa = user_va_to_pa((pagetable_t)(current->pagetable), path);
+  get_full_path(current->pfiles->cwd, pathpa);
+  return 0;
+}
+
+int do_ccwd(char *path) {
+  char* pathpa = user_va_to_pa((pagetable_t)(current->pagetable), path);
+  char true_path[256];
+  if (pathpa[0] == '.' && pathpa[1] == '.') {
+    // go to parent directory
+    struct dentry *parent = current->pfiles->cwd->parent;
+    if (parent != NULL) {
+      if (pathpa[3] == '\0') {
+        current->pfiles->cwd = parent;
+      } else {
+        get_full_path(parent, true_path);
+        strcat(true_path, pathpa + 2);
+        current->pfiles->cwd = hash_get_dentry(parent, true_path);
+      }
+    } else {
+      return -1;
+    }
+  } else if (pathpa[0] == '.' && pathpa[1] == '/') {
+    // stay in the current directory
+    current->pfiles->cwd = hash_get_dentry(current->pfiles->cwd, pathpa + 2);
+  } else if (pathpa[0] == '/') {
+    // absolute path
+    current->pfiles->cwd = hash_get_dentry(current->pfiles->cwd, pathpa + 1);
+  } else {
+    return -1;
+  }
+  return 0;
 }
