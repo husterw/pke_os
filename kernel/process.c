@@ -159,6 +159,75 @@ process* alloc_process() {
   return &procs[i];
 }
 
+process* alloc_process_no_info() {
+  // locate the first usable process structure
+  int i;
+
+  for( i=0; i<NPROC; i++ )
+    if( procs[i].status == FREE ) break;
+
+  if( i>=NPROC ){
+    panic( "cannot find any free process structure.\n" );
+    return 0;
+  }
+
+  // init proc[i]'s vm space
+  procs[i].trapframe = (trapframe *)alloc_page();  //trapframe, used to save context
+  memset(procs[i].trapframe, 0, sizeof(trapframe));
+
+  // page directory
+  procs[i].pagetable = (pagetable_t)alloc_page();
+  memset((void *)procs[i].pagetable, 0, PGSIZE);
+
+  procs[i].kstack = (uint64)alloc_page() + PGSIZE;   //user kernel stack top
+  uint64 user_stack = (uint64)alloc_page();       //phisical address of user stack bottom
+  procs[i].trapframe->regs.sp = USER_STACK_TOP;  //virtual address of user stack top
+
+  // allocates a page to record memory regions (segments)
+  procs[i].mapped_info = (mapped_region*)alloc_page();
+  memset( procs[i].mapped_info, 0, PGSIZE );
+
+  // map user stack in userspace
+  user_vm_map((pagetable_t)procs[i].pagetable, USER_STACK_TOP - PGSIZE, PGSIZE,
+    user_stack, prot_to_type(PROT_WRITE | PROT_READ, 1));
+  procs[i].mapped_info[STACK_SEGMENT].va = USER_STACK_TOP - PGSIZE;
+  procs[i].mapped_info[STACK_SEGMENT].npages = 1;
+  procs[i].mapped_info[STACK_SEGMENT].seg_type = STACK_SEGMENT;
+
+  // map trapframe in user space (direct mapping as in kernel space).
+  user_vm_map((pagetable_t)procs[i].pagetable, (uint64)procs[i].trapframe, PGSIZE,
+    (uint64)procs[i].trapframe, prot_to_type(PROT_WRITE | PROT_READ, 0));
+  procs[i].mapped_info[CONTEXT_SEGMENT].va = (uint64)procs[i].trapframe;
+  procs[i].mapped_info[CONTEXT_SEGMENT].npages = 1;
+  procs[i].mapped_info[CONTEXT_SEGMENT].seg_type = CONTEXT_SEGMENT;
+
+  // map S-mode trap vector section in user space (direct mapping as in kernel space)
+  // we assume that the size of usertrap.S is smaller than a page.
+  user_vm_map((pagetable_t)procs[i].pagetable, (uint64)trap_sec_start, PGSIZE,
+    (uint64)trap_sec_start, prot_to_type(PROT_READ | PROT_EXEC, 0));
+  procs[i].mapped_info[SYSTEM_SEGMENT].va = (uint64)trap_sec_start;
+  procs[i].mapped_info[SYSTEM_SEGMENT].npages = 1;
+  procs[i].mapped_info[SYSTEM_SEGMENT].seg_type = SYSTEM_SEGMENT;
+
+  // initialize the process's heap manager
+  procs[i].user_heap.heap_top = USER_FREE_ADDRESS_START;
+  procs[i].user_heap.heap_bottom = USER_FREE_ADDRESS_START;
+  procs[i].user_heap.free_pages_count = 0;
+
+  // map user heap in userspace
+  procs[i].mapped_info[HEAP_SEGMENT].va = USER_FREE_ADDRESS_START;
+  procs[i].mapped_info[HEAP_SEGMENT].npages = 0;  // no pages are mapped to heap yet.
+  procs[i].mapped_info[HEAP_SEGMENT].seg_type = HEAP_SEGMENT;
+
+  procs[i].total_mapped_region = 4;
+
+  // initialize files_struct
+  procs[i].pfiles = init_proc_file_management_no_info();
+
+  // return after initialization.
+  return &procs[i];
+}
+
 //
 // reclaim a process. added @lab3_1
 //
@@ -240,7 +309,7 @@ int do_fork( process* parent)
         uint64 pa = lookup_pa(parent->pagetable, va);
         user_vm_map((pagetable_t)child->pagetable, va,       parent->mapped_info[i].npages * PGSIZE, pa,
           prot_to_type(PROT_READ | PROT_EXEC, 1));
-        sprint("do_folk map code segment at pa:0x%lx of parent to child at va:0x%lx.\n", pa, va);
+        sprint("do_fork map code segment at pa:%lx of parent to child at va:%lx.\n", pa, va);
 
         // after mapping, register the vm region (do not delete codes below!)
         child->mapped_info[child->total_mapped_region].va = parent->mapped_info[i].va;
@@ -258,4 +327,52 @@ int do_fork( process* parent)
   insert_to_ready_queue( child );
 
   return child->pid;
+}
+
+int do_wait(process* proc, int pid) {
+  if (pid == -1) {
+    int f = 0;
+
+    for (int i = 0; i < NPROC; i++)
+      if (procs[i].parent == current) {
+        f = 1;
+        if (procs[i].status == ZOMBIE) {
+          procs[i].status = FREE; return i;
+        }
+      }
+
+    if (f)
+      return -2;
+    else
+      return -1;
+  } else if (pid < NPROC) {
+    if (procs[pid].parent != current)
+      return -1;
+    else {
+      if (procs[pid].status == ZOMBIE) {
+        procs[pid].status = FREE;
+        return pid;
+      } 
+      else 
+        return -2;
+    }
+  } else return -1;
+}
+
+int do_exec(char *pathname, char *argv) {
+  process* proc = alloc_process_no_info();
+
+  if (exec_load_elf(proc, pathname, argv) != 0) {
+    free_process(proc);
+    return -1;
+  }
+
+  // TODO: compelte the switch from current to proc and return
+  process* temp_p = current;
+  current = proc;
+  free_process(temp_p);
+
+  switch_to(proc);
+
+  return 0;
 }

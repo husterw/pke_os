@@ -102,10 +102,15 @@ void switch_to(process*);
 void init_proc_pool();
 // allocate an empty process, init its vm space. returns its pid
 process* alloc_process();
+process* alloc_process_no_info();
 // reclaim a process, destruct its vm space and free physical pages.
 int free_process( process* proc );
 // fork a child from parent
 int do_fork(process* parent);
+
+int do_wait(process*, int);
+
+int do_exec(char*, char*);
 
 // current running process
 extern process* current;

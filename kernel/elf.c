@@ -137,3 +137,44 @@ void load_bincode_from_host_elf(process *p, char *filename) {
 
   sprint("Application program entry point (virtual address): 0x%lx\n", p->trapframe->epc);
 }
+
+int exec_load_elf(process *p, char *pathname, char *para) {
+  elf_ctx elfloader;
+  elf_info info;
+
+  info.f = vfs_open(pathname, O_RDONLY);
+  info.p = p;
+
+  if (info.f == NULL) return -1;
+
+  if (elf_init(&elfloader, &info) != EL_OK) return -1;
+
+  if (elf_load(&elfloader) != EL_OK) return -1;
+
+  p->trapframe->epc = elfloader.ehdr.entry;
+
+  vfs_close(info.f);
+
+  sprint("Application program entry point (virtual address): 0x%lx\n", p->trapframe->epc);
+
+  // save the parameters to the user stack
+  const int num_args = 5;
+  uint64 para_array[num_args],sp = p->trapframe->regs.sp;
+
+  // copy the parameters to the user stack
+  sp -= (strlen(para) + 1);
+  sp -= sp % 16;
+  memcpy(user_va_to_pa(p->pagetable,(void*)sp),para,strlen(para) + 1);
+  para_array[0] = sp;
+
+  // copy the address of the parameters to the user stack
+  sp -= (num_args + 1) * sizeof(uint64);
+  sp -= sp % 16;
+  memcpy(user_va_to_pa(p->pagetable,(void*)sp),(char*)para_array,(num_args + 1) * sizeof(uint64));
+
+  // update regs
+  p->trapframe->regs.a0 = 1;
+  p->trapframe->regs.a1 = sp;
+  p->trapframe->regs.sp = sp;
+  return 0;
+}
